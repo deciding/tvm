@@ -108,6 +108,10 @@ class State:
         self.stage_id_map = {}  # A dict maps operation to stage id
         self._update_stage_id_map()
 
+    # for heapq
+    def __lt__(self, other):
+        return False
+
     @property
     def stages(self):
         """

@@ -395,6 +395,32 @@ void PruneInvalidState(const SearchTask& task, Array<State>* states) {
   }
 }
 
+// assert the lengths of states and sketch_indices are the same
+void PruneInvalidState(const SearchTask& task, Array<State>* states, Array<Integer>* sketch_indices) {
+  size_t pt = 0;
+  for (size_t i = 0; i < states->size(); ++i) {
+    if (!(*states)[i].defined()) {
+      continue;
+    }
+    if (!IsGPUTask(task) && HasNestedParallel((*states)[i])) {
+      continue;
+    }
+
+    if (i != pt) {
+      sketch_indices->Set(pt, (*sketch_indices)[i]);
+      states->Set(pt, (*states)[i]);
+    }
+    pt++;
+  }
+
+  if (pt == 0) {
+    LOG(FATAL) << "Internal error: All states are invalid.";
+  } else {
+    sketch_indices->resize(pt);
+    states->resize(pt);
+  }
+}
+
 /********** SplitFactorizationMemo **********/
 const Array<Array<Integer>>& SplitFactorizationMemo::GetFactorizationSchemes(
     int extent, int n_lengths, int max_innermost_factor) {

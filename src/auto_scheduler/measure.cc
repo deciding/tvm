@@ -422,5 +422,116 @@ TVM_REGISTER_GLOBAL("auto_scheduler.RPCRunner")
                        min_repeat_ms, cooldown_interval, enable_cpu_cache_flush);
     });
 
+// Expose Measurer methods and members to Python
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerCt")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->ct;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerErrorCt")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->error_ct;
+    });
+
+//// TVMRetValue, unordered_map
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBestFlopsKeys")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      auto delimiter = '|';
+      auto best_flops = pm->best_flops;
+      std::string res;
+      for (const auto &kv: best_flops){
+        if (!res.empty())
+          res += delimiter;
+        res += kv.first;
+      }
+      return res;
+    });
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBestFlopsValue")
+    .set_body_typed([](const ProgramMeasurer& pm, std::string key) {
+      return pm->best_flops[key];
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBestStateKeys")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      auto delimiter = '|';
+      auto best_state = pm->best_state;
+      std::string res;
+      for (const auto &kv: best_state){
+        if (!res.empty())
+          res += delimiter;
+        res += kv.first;
+      }
+      return res;
+    });
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBestStateValue")
+    .set_body_typed([](const ProgramMeasurer& pm, std::string key) {
+      return pm->best_state[key];
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBestCtKeys")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      auto delimiter = '|';
+      auto best_ct = pm->best_ct;
+      std::string res;
+      for (const auto &kv: best_ct){
+        if (!res.empty())
+          res += delimiter;
+        res += kv.first;
+      }
+      return res;
+    });
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBestCtValue")
+    .set_body_typed([](const ProgramMeasurer& pm, std::string key) {
+      return pm->best_ct[key];
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerHasValid")
+    .set_body_typed([](const ProgramMeasurer& pm, std::string key) {
+      return static_cast<int>(pm->has_valid.count(key));
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerBuilder")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->builder;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerRunner")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->runner;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerCallbacks")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->callbacks;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerVerbose")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->verbose;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerMaxContinuousError")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->max_continuous_error;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerReset")
+    .set_body_typed([](const ProgramMeasurer& pm) {
+      return pm->Reset();
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerMeasure")
+    .set_body_typed([](const ProgramMeasurer& pm, const SearchTask& task, const SearchPolicy& policy,
+                               const Array<MeasureInput>& inputs, int batch_size = -1) {
+      return pm->Measure(task, policy, inputs, batch_size);
+    });
+
+//TVM_REGISTER_GLOBAL("auto_scheduler.ProgramMeasurerSilentMeasure")
+//    .set_body_typed([](const ProgramMeasurer& pm, const SearchTask& task, const Array<MeasureInput>& inputs,
+//                     Array<MeasureResult>* results) {
+//      return pm->SilentMeasure(task, inputs, results);
+//    });
+
 }  // namespace auto_scheduler
 }  // namespace tvm

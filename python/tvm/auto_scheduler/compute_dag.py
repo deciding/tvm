@@ -203,6 +203,21 @@ class ComputeDAG(Object):
                 updated_state.stage_id_map[k] = v
         return updated_state
 
+    def cp_stage_id_map_for_state(self, updated_state, state):
+        if isinstance(state, State):
+            for k, v in state.stage_id_map.items():
+                updated_state.stage_id_map[k] = v 
+
+    def infer_bound_from_states(self, states):
+        state_objs = [state if isinstance(state, StateObject) else state.state_object for state in states]
+        updated_states = [State(updated_state_obj, self) for updated_state_obj in _ffi_api.ComputeDAGInferBoundFromStates(self, state_objs)]
+
+        # Copy the stage_id_map from the original state to make sure the old indices are still valid
+        for updated_state, state in zip(updated_states, states):
+            self.cp_stage_id_map_for_state(updated_state, state)
+
+        return updated_states
+
     def rewrite_layout_from_state(self, state):
         """
         Rewrite the layout of the DAG according to the history transform steps of a state.

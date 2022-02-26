@@ -1504,6 +1504,11 @@ TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGInferBoundFromState")
       return dag.InferBound(state);
     });
 
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGInferBoundFromStates")
+    .set_body_typed([](const ComputeDAG& dag, const Array<State>& states) {
+      return dag.InferBound(states);
+    });
+
 TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGRewriteLayoutFromState")
     .set_body_typed([](const ComputeDAG& dag, const State& state) {
       Array<Step>* transform_steps = const_cast<Array<Step>*>(&state->transform_steps);

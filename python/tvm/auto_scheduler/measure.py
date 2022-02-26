@@ -314,6 +314,56 @@ class ProgramMeasurer(Object):
             _ffi_api.ProgramMeasurer, builder, runner, callbacks, verbose, max_continuous_error
         )
 
+    def GetCt(self):
+        ct = _ffi_api.ProgramMeasurerCt(self)
+        return ct
+
+    def GetBestFlopsKeys(self):
+        keys = _ffi_api.ProgramMeasurerBestFlopsKeys(self)
+        keys = keys.split('|')
+        for key in keys:
+            assert key.startswith('[') and key.endswith(']')
+        return keys
+
+    def GetBestFlopsValue(self, key):
+        val = _ffi_api.ProgramMeasurerBestFlopsValue(self, key)
+        return val
+
+    def GetBestStateKeys(self):
+        keys = _ffi_api.ProgramMeasurerBestStateKeys(self)
+        keys = keys.split('|')
+        for key in keys:
+            assert key.startswith('[') and key.endswith(']')
+        return keys
+
+    def GetBestStateValue(self, key):
+        val = _ffi_api.ProgramMeasurerBestStateValue(self, key)
+        return val
+
+    def GetBestCtKeys(self):
+        keys = _ffi_api.ProgramMeasurerBestCtKeys(self)
+        keys = keys.split('|')
+        for key in keys:
+            assert key.startswith('[') and key.endswith(']')
+        return keys
+
+    def GetBestCtValue(self, key):
+        val = _ffi_api.ProgramMeasurerBestCtValue(self, key)
+        return val
+
+    # return count
+    def HasValid(self, key):
+        val = _ffi_api.ProgramMeasurerHasValid(self, key)
+        return val
+
+    def Reset(self):
+        _ffi_api.ProgramMeasurerReset(self)
+        return
+
+    def Measure(self, search_task, search_policy, inputs, batch_size=-1):
+        results = _ffi_api.ProgramMeasurerMeasure(self, search_task, search_policy, inputs, batch_size)
+        return results
+
 
 @tvm._ffi.register_object("auto_scheduler.LocalBuilder")
 class LocalBuilder(ProgramBuilder):

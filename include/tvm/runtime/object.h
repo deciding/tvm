@@ -742,6 +742,22 @@ struct ObjectPtrEqual {
   using ContainerType = ObjectName;
 
 /*
+ * \brief Define object reference methods of whose content is mutable.
+ * \param TypeName The object type name
+ * \param ParentType The parent type of the objectref
+ * \param ObjectName The type name of the object.
+ * \note We recommend making objects immutable when possible.
+ *       This macro is only reserved for objects that stores runtime states.
+ */
+#define TVM_DEFINE_MUTABLE_GETTABLE_OBJECT_REF_METHODS(TypeName, ParentType, ObjectName)             \
+  TypeName() = default;                                                                     \
+  TVM_DEFINE_DEFAULT_COPY_MOVE_AND_ASSIGN(TypeName);                                        \
+  explicit TypeName(::tvm::runtime::ObjectPtr<::tvm::runtime::Object> n) : ParentType(n) {} \
+  ObjectName* operator->() const { return static_cast<ObjectName*>(data_.get()); }          \
+  ObjectName* get() const { return operator->(); }                                          \
+  using ContainerType = ObjectName;
+
+/*
  * \brief Define object reference methods that is both not nullable and mutable.
  *
  * \param TypeName The object type name

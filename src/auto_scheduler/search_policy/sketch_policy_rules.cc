@@ -1009,10 +1009,12 @@ PopulationGenerationRule::ResultKind MutateTileSize::Apply(SketchPolicyNode* pol
     ICHECK_LE(GetIntImm(new_lengths.back()), max_innermost_split_factor);
 
     StateNode* pstate = state->CopyOnWrite();
+    
     pstate->transform_steps.Set(
         step_id, SplitStep(ps->stage_id, ps->iter_id, ps->extent,
                            Array<Optional<Integer>>(new_lengths.begin(), new_lengths.end()),
                            ps->inner_to_outer));
+
     return ResultKind::kValid;
   }
   return ResultKind::kInvalid;
@@ -1237,6 +1239,244 @@ PopulationGenerationRule::ResultKind MutateParallel::Apply(SketchPolicyNode* pol
   *state = tmp_s;
   return ResultKind::kValid;
 }
+
+// Call mutation for all rules in Cpp
+TVM_REGISTER_GLOBAL("auto_scheduler.ApplyMutationRule")
+    .set_body_typed([](const SketchPolicy& policy, const int rule_index, State state) {
+      std::mt19937 rand_gen = policy->rand_gen;
+      const auto& rule = policy->mutation_rules[rule_index];
+      PopulationGenerationRule::ResultKind res = rule->Apply(policy.get(), &state, &rand_gen); // 0 valid, 1 invald
+      Array<te::Operation> dummy_ops;
+      State dummy_state = State(dummy_ops);
+      if (res == PopulationGenerationRule::ResultKind::kInvalid)
+        return dummy_state;
+      else
+        return state;
+    });
+
+// For MutateTileSize
+
+TVM_REGISTER_GLOBAL("auto_scheduler.SplitStepExtentInvalid")
+    .set_body_typed([](const SplitStep& ps) {
+      return !ps->extent.defined() || !ps->extent.value()->IsInstance<IntImmNode>();
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.SplitStepGetInnermostFactor")
+    .set_body_typed([](const SplitStep& ps, const int& max_innermost_split_factor) {
+      auto innermost_factor = GetIntImm(ps->lengths.back().value_or(max_innermost_split_factor + 1));
+      return innermost_factor;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.SplitStepGetExtent")
+    .set_body_typed([](const SplitStep& ps) {
+      return GetIntImm(ps->extent.value());
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.SplitStepGetLengths")
+    .set_body_typed([](const SplitStep& ps) {
+      std::string res = "";
+      for (const auto& item: ps->lengths)
+        res += (std::to_string(GetIntImm(item.value()))+",");
+      return res;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.PolicyGetFactors")
+    .set_body_typed([](const SketchPolicy& policy, const int& length) {
+      const std::vector<int>& factors = policy->split_memo.GetFactors(length);
+      std::string res = "";
+      for (const auto& item: factors)
+        res += (std::to_string(item)+",");
+      return res;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.SplitStepUpdateLengths")
+    .set_body_typed([](State state, const SplitStep& ps, const int& step_id, const Array<Integer>& new_lengths) {
+      StateNode* pstate = state.CopyOnWrite();
+    
+      pstate->transform_steps.Set(
+          step_id, SplitStep(ps->stage_id, ps->iter_id, ps->extent,
+                            Array<Optional<Integer>>(new_lengths.begin(), new_lengths.end()),
+                            ps->inner_to_outer));
+
+      return state;
+    });
+
+// For MutateAutoUnroll
+
+TVM_REGISTER_GLOBAL("auto_scheduler.PragmaStepIsAutoUnroll")
+    .set_body_typed([](const PragmaStep& ps) {
+      return StrStartsWith(ps->pragma_type, "auto_unroll_max_step");
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.PragmaStepUpdateAutoUnroll")
+    .set_body_typed([](State state, const PragmaStep& ps, const int& step_id, const int& new_val) {
+      StateNode* pstate = state.CopyOnWrite();
+      pstate->transform_steps.Set(
+          step_id, PragmaStep(ps->stage_id, ps->iter_id,
+                              std::string("auto_unroll_max_step") + "$" + std::to_string(new_val)));
+      Stage new_stage = pstate->stages[ps->stage_id];
+      new_stage.CopyOnWrite()->attrs.auto_unroll_max_step = new_val;
+      pstate->stages.Set(ps->stage_id, new_stage);
+
+      return state;
+    });
+
+// For MutateComputeLocation
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeAtGetStepTargetStageInc")
+    .set_body_typed([](State state, const ComputeAtStep& ps, const int& step_id) {
+      return GetTargetStageIDInState(state, step_id) - ps->stage_id;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeAtIsTiled")
+    .set_body_typed([](State state, const ComputeAtStep& ps, const int& stage_inc) {
+      return IsTiled((state)->stages[ps->stage_id + stage_inc]);
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeAtNeedsMultilevelTiling")
+    .set_body_typed([](const SketchPolicy& policy, State state, const ComputeAtStep& ps, const int& stage_inc) {
+      return NeedsMultilevelTiling(policy->search_task, state, ps->stage_id + stage_inc);
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeAtGetComputeLocationCandidates")
+    .set_body_typed([](const SketchPolicy& policy, State state, const ComputeAtStep& ps, const int& stage_inc) {
+      std::vector<std::pair<int, int>> candidates =
+          GetComputeLocationCandidates(policy->search_task, state, ps->stage_id + stage_inc);
+      // if (candidates.empty()) {
+      //   return std::string("");
+      // }
+      std::string res = "";
+      for (const auto& item: candidates)
+        res += (std::to_string(item.first) + " " + std::to_string(item.second) + ",");
+      return res;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeAtUpdate")
+    .set_body_typed([](const SketchPolicy& policy, State state, const ComputeAtStep& ps,
+        const size_t& step_id, const int& new_stage_id, const int& new_compute_at_iter_id) {
+      State tmp_s = policy->search_task->compute_dag->init_state;
+      for (size_t s = 0; s < (state)->transform_steps.size(); ++s) {
+        if (s == step_id) {
+          tmp_s.CopyOnWrite()->transform_steps.push_back(
+              ComputeAtStep(ps->stage_id, new_stage_id, new_compute_at_iter_id));
+        } else {
+          tmp_s.CopyOnWrite()->transform_steps.push_back((state)->transform_steps[s]);
+        }
+        try {
+          StepApplyToState(tmp_s->transform_steps.back(), &tmp_s, policy->search_task->compute_dag);
+        } catch (Error& e) {
+          Array<te::Operation> dummy_ops;
+          State dummy_state = State(dummy_ops);
+          return dummy_state;
+        }
+      }
+
+      return tmp_s;
+    });
+
+// for MutateParallel
+
+TVM_REGISTER_GLOBAL("auto_scheduler.AnnotationStepIsParallel")
+    .set_body_typed([](const AnnotationStep& ps) {
+      return ps->annotation == IteratorAnnotation::kParallel;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ParallelStepNotOutmostOrPrevNotFusion")
+    .set_body_typed([](State state, const AnnotationStep& ps, const size_t& step_id) {
+      return ps->iter_id != 0 || step_id == 0 || !state->transform_steps[step_id - 1].as<FuseStepNode>();
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.FuseStepStartFrom0")
+    .set_body_typed([](const FuseStep& ps) {
+      return ps->fused_ids[0] == 0;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.StepApplyUntil")
+    .set_body_typed([](const SketchPolicy& policy, State state, const size_t& step_id) {
+      State tmp_s = policy->search_task->compute_dag->init_state;
+      for (size_t s = 0; s < step_id - 1; ++s) {
+          const auto& step = state->transform_steps[s];
+          tmp_s.CopyOnWrite()->transform_steps.push_back(step);
+          StepApplyToState(step, &tmp_s, policy->search_task->compute_dag);
+      }
+      return tmp_s;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.FuseStepGetStageId")
+    .set_body_typed([](const FuseStep& ps) {
+      return ps->stage_id;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.IsStageAttachedToIterInState")
+    .set_body_typed([](State state, const size_t& stage_id, const int& iter_id) {
+      return int(state->attach_map->iter_to_attached_stages.count(
+                std::make_pair(stage_id, iter_id)));
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ParallelStepApplyNewFuseAndParallel")
+    .set_body_typed([](const SketchPolicy& policy, State state, State tmp_s,
+        const size_t& step_id, // the step id for parallel not fuse
+        const FuseStep& fuse_step, const int& stage_id, const int& fuse_to_iter_id) {
+      Array<te::Operation> dummy_ops;
+      State dummy_state = State(dummy_ops);
+
+      Array<Integer> fused_ids;
+      for (int i = 0; i < fuse_to_iter_id; ++i) {
+        fused_ids.push_back(i);
+      }
+      int iter_offset = fuse_step->fused_ids.back()->value - fused_ids.back()->value;
+      if (iter_offset == 0) { // just remain the same
+        return dummy_state;
+      }
+
+      // Replay the mutated fused and annotation step.
+      auto new_fuse_step = FuseStep(stage_id, fused_ids);
+      tmp_s.CopyOnWrite()->transform_steps.push_back(new_fuse_step);
+      StepApplyToState(new_fuse_step, &tmp_s, policy->search_task->compute_dag);
+      tmp_s.CopyOnWrite()->transform_steps.push_back(state->transform_steps[step_id]);
+      StepApplyToState(state->transform_steps[step_id], &tmp_s, policy->search_task->compute_dag);
+
+      // Replay the rest steps.
+      for (size_t s = step_id + 1; s < state->transform_steps.size(); ++s) {
+        auto step = state->transform_steps[s];
+        if (step->stage_id == stage_id) {
+          // Since we changed the loop structure, iter ID in later steps to the same stage
+          // has to be adjusted.
+          if (auto ps = step.as<AnnotationStepNode>()) {
+            if (ps->iter_id == 0) {
+              step = AnnotationStep(ps->stage_id, 0, ps->annotation);
+            } else {
+              ICHECK_LE(ps->iter_id + iter_offset, tmp_s->stages[stage_id]->iters.size());
+              step = AnnotationStep(ps->stage_id, ps->iter_id + iter_offset, ps->annotation);
+            }
+          } else if (auto ps = step.as<PragmaStepNode>()) {
+            if (ps->iter_id == 0) {
+              step = PragmaStep(ps->stage_id, 0, ps->pragma_type);
+            } else {
+              ICHECK_LE(ps->iter_id + iter_offset, tmp_s->stages[stage_id]->iters.size());
+              step = PragmaStep(ps->stage_id, ps->iter_id + iter_offset, ps->pragma_type);
+            }
+          } else {
+            return dummy_state;
+          }
+        }
+        if (IsStageNumberChangingStep(step)) {
+          // For these steps, we have to update stage_id because these steps will make stage_id
+          // out-dated. But here we just simply give up this mutation for simplicity.
+          // This is not an issue because this will never happend in normal cases where all these steps
+          // are before parallel steps.
+          return dummy_state;
+        }
+        tmp_s.CopyOnWrite()->transform_steps.push_back(step);
+        try {
+          StepApplyToState(tmp_s->transform_steps.back(), &tmp_s, policy->search_task->compute_dag);
+        } catch (Error& e) {
+          return dummy_state;
+        }
+      }
+
+      return tmp_s;
+    });
 
 }  // namespace auto_scheduler
 }  // namespace tvm

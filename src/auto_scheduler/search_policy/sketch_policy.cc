@@ -399,12 +399,14 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
   size_t iter = 1;
   size_t unchange_cnt = 0;
   while (static_cast<int>(out_states.size()) < sample_init_min_pop_) {
+    std::vector<int> temp_sketch_indices(population);
     std::vector<State> temp_states(population);
 
     // Sample a batch of states randomly
-    support::parallel_for(0, population, [this, &temp_states, &sketches, &rand_gens](int index) {
+    support::parallel_for(0, population, [this, &temp_sketch_indices, &temp_states, &sketches, &rand_gens](int index) {
       // Randomly choose a sketch
-      State tmp_s = sketches[(rand_gens[index])() % sketches.size()];
+      auto sketch_index = (rand_gens[index])() % sketches.size();
+      State tmp_s = sketches[sketch_index];
       // Apply random annotation rules one by one
       bool valid = true;
       for (const auto& rule : init_rules) {
@@ -415,14 +417,20 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
         }
       }
       if (valid) {
+        temp_sketch_indices[index] = sketch_index;
         temp_states[index] = std::move(tmp_s);
       }
     });
 
     // Filter out the states that were failed to apply initial rules
+    Array<Integer> cand_sketch_indices;
     Array<State> cand_states;
-    for (auto tmp_s : temp_states) {
+    // for (auto tmp_s : temp_states) {
+    for (size_t ind = 0; ind < temp_states.size(); ind++) {
+      auto sketch_index = temp_sketch_indices[ind];
+      auto tmp_s = temp_states[ind];
       if (tmp_s.defined()) {
+        cand_sketch_indices.push_back(sketch_index);
         cand_states.push_back(std::move(tmp_s));
       } else {
         fail_ct++;
@@ -437,13 +445,15 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
       std::vector<float> pop_scores;
       pop_scores.reserve(cand_states.size());
       cand_states = search_task->compute_dag.InferBound(cand_states);
-      PruneInvalidState(search_task, &cand_states);
+      //PruneInvalidState(search_task, &cand_states);
+      PruneInvalidState(search_task, &cand_states, &cand_sketch_indices);
       program_cost_model->Predict(search_task, cand_states, &pop_scores);
 
       for (size_t i = 0; i < cand_states.size(); i++) {
         const auto state_str = cand_states[i].ToStr();
         if (pop_scores[i] > -1e10 && explored_state_strs.count(state_str) == 0) {
           explored_state_strs.insert(state_str);
+          pop_sketch_indices.push_back(std::move(cand_sketch_indices[i]));
           out_states.push_back(std::move(cand_states[i]));
           unchange_cnt = 0;  // Reset the counter once we found a valid state
         } else {
@@ -452,6 +462,7 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
       }
     }
 
+    ICHECK_EQ(cand_sketch_indices.size(), cand_states.size());
     if (iter % 5 == 0) {
       double duration = std::chrono::duration_cast<std::chrono::duration<double>>(
                             std::chrono::high_resolution_clock::now() - tic_begin)
@@ -474,6 +485,8 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
     }
     iter++;
   }
+
+  ICHECK_EQ(pop_sketch_indices.size(), out_states.size());
 
   double duration = std::chrono::duration_cast<std::chrono::duration<double>>(
                         std::chrono::high_resolution_clock::now() - tic_begin)
@@ -722,6 +735,69 @@ TVM_REGISTER_GLOBAL("auto_scheduler.PrintTitle").set_body_typed([](std::string t
 TVM_REGISTER_GLOBAL("auto_scheduler.PreloadCustomSketchRule")
     .set_body_typed([](PackedFunc meet_condition_func, PackedFunc apply_func, String rule_name) {
       return PreloadCustomSketchRule(meet_condition_func, apply_func, rule_name);
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.PruneInvalidState")
+    .set_body_typed([](const SearchTask& task, Array<State> states) {
+      PruneInvalidState(task, &states);
+      return states;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.PopSketchIndices")
+    .set_body_typed([](const SketchPolicy& policy) {
+      return policy->pop_sketch_indices;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.Test")
+    .set_body_typed([]() {
+      // std::vector<int> arr {1, 3, 2};
+      // std::vector<int> indices = Argsort(arr);
+      // std::string res = "";
+      // for (const auto& item: indices)
+      //   res += (std::to_string(item)+",");
+      // return res;
+
+      // // A heap to keep the best states during evolution
+      // using StateHeapItem = std::pair<State, float>;
+      // auto cmp = [](const StateHeapItem& left, const StateHeapItem& right) {
+      //   return left.second > right.second;
+      // };
+      // std::vector<StateHeapItem> heap;
+      // heap.reserve(10);
+
+      // heap.emplace_back(state, 3.0);
+      // std::push_heap(heap.begin(), heap.end(), cmp);
+      // heap.emplace_back(state, 1.0);
+      // std::push_heap(heap.begin(), heap.end(), cmp);
+      // heap.emplace_back(state, 2.0);
+      // std::push_heap(heap.begin(), heap.end(), cmp);
+
+      // std::string res = "";
+      // for (const auto& item: heap)
+      //   res += (std::to_string(item.second)+",");
+      // return res;
+
+      // std::vector<double> arr {0.03, 0.25, 0.91, 1};
+      // return std::lower_bound(arr.begin(), arr.end(), 0.33) - arr.begin();
+
+      // using StateHeapItem = std::pair<State, float>;
+      // auto cmp = [](const StateHeapItem& left, const StateHeapItem& right) {
+      //   return left.second > right.second;
+      // };
+      // std::vector<StateHeapItem> heap;
+      // heap.reserve(10);
+      // Array<te::Operation> dummy_ops;
+      // State dummy_state = State(dummy_ops);
+      // std::vector<double> arr {0.03, 0.25, 0.91, 1};
+      // for (const auto& i: arr){
+      //   heap.emplace_back(dummy_state, i);
+      // }
+      // std::sort(heap.begin(), heap.end(), cmp);
+      // std::string res = "";
+      // for (const auto& item: heap)
+      //   res += (std::to_string(item.second)+",");
+      // return res;
+      return 0;
     });
 
 }  // namespace auto_scheduler

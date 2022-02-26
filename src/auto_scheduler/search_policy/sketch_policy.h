@@ -110,6 +110,9 @@ class SketchPolicyNode : public SearchPolicyNode {
   std::mt19937 rand_gen;
   /*! \brief Memorize split space for Split. */
   SplitFactorizationMemo split_memo;
+  /*! \brief Memorize last SamplePopulation sketch indices. */
+  // std::vector<int> pop_sketch_indices;
+  Array<Integer> pop_sketch_indices;
 
   State Search(int num_measure_trials, int early_stopping, int num_measures_per_round,
                ProgramMeasurer measurer) final;
@@ -194,7 +197,8 @@ class SketchPolicy : public SearchPolicy {
   SketchPolicy(SearchTask task, CostModel program_cost_model, Map<String, ObjectRef> params,
                int seed, int verbose, Optional<Array<SearchCallback>> init_search_callbacks);
 
-  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SketchPolicy, SearchPolicy, SketchPolicyNode);
+  // TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SketchPolicy, SearchPolicy, SketchPolicyNode);
+  TVM_DEFINE_MUTABLE_GETTABLE_OBJECT_REF_METHODS(SketchPolicy, SearchPolicy, SketchPolicyNode);
 };
 
 /*! \brief Pre-search callback function to load custom rules for sketch generation */

@@ -209,6 +209,8 @@ class SketchPolicy(SearchPolicy):
                 if key not in params:
                     params[key] = value
 
+        self.params = params
+
         self.__init_handle_by_constructor__(
             _ffi_api.SketchPolicy,
             task,

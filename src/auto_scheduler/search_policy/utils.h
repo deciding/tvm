@@ -708,6 +708,8 @@ State FollowTiling(const State& state, int stage_id, const std::vector<int>& spl
 // Prune invalid states and return the results in-place.
 void PruneInvalidState(const SearchTask& task, Array<State>* states);
 
+void PruneInvalidState(const SearchTask& task, Array<State>* states, Array<Integer>* sketch_indices);
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 
